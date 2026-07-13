@@ -1,104 +1,146 @@
-SELF-ORGANIZED NEURAL INTEGRATORS IN NOISY SPIKING
-NETWORKS (MATLAB)
-================================================
+SELF-ORGANIZED NEURAL INTEGRATORS IN NOISY SPIKING NETWORKS
+MATLAB CODE
+============================================================
 
-This repository contains MATLAB code for simulating and analyzing recurrent spiking networks that exhibit integrator-like dynamics through biologically inspired learning rules (TTL) and mean-field theory (MFT) approximations.
+This repository contains MATLAB code for simulating noisy spiking-network
+integrators, mean-field theory (MFT), two-trace learning (TTL), timing,
+oculomotor persistence, and drift--diffusion dynamics.
 
-------------------------------------------------
+------------------------------------------------------------
 Directory Structure
-------------------------------------------------
+------------------------------------------------------------
+
 .
-├── Integrator_learning/             
-│   ├── learning_timing.m	# learning cortical timing
-│   ├── LI_vs_wrec.m		# analyze liberality vs W_rec
-│   └── self_organize_all_E_integrator.m 	# self-organize integrator
-├── MFT/                             
-│   ├── DDM_parameter.m		# estimate equivelent DDM parameters from integrator simulations
-│   ├── integrator_RNN.m	# integrator model (demonstration, no learning, for any time step)
-│   ├── IO_function.m		# helper function of mft_main.m, extracting IO curve from simulations
-│   ├── mft_main.m		# run MFT analyze	
-│   ├── neuron_parameters.m	# parameters for MFT analyze (100 neurons)
-│   ├── neuron_parameters_1000.m	# parameters for MFT analyze (1000 neurons)
-│   ├── neuron_parameters_taus20.m	# parameters for MFT analyze	(faster synaptic constant)
-│   ├── ramp_vs_sd.m		# demonstrate Wieber's law (linear scaling)
-│   ├── run1000neuron.m		# main function to run N = 1000 neurons
+├── Integrator_learning/
+│   ├── learning_timing.m
+│   ├── LI_vs_wrec.m
+│   ├── neuron_parameters_timing.m
+│   └── self_organize_all_E_integrator.m
+│
+├── MFT/
+│   ├── DDM_parameter.m
+│   ├── delta_r.m
+│   ├── eyeposition.m
+│   ├── integrator_RNN.m
+│   ├── IO_function.m
+│   ├── mft_main.m
+│   ├── neural_parameters_eyeposition.m
+│   ├── neuron_parameters.m
+│   ├── neuron_parameters_1000.m
+│   ├── neuron_parameters_taus20.m
+│   ├── ramp_vs_sd.m
+│   └── run1000neuron.m
+│
+└── README.txt
 
 
+------------------------------------------------------------
+How to Use the Scripts
+------------------------------------------------------------
 
-------------------------------------------------
-How to Use Each Script
-------------------------------------------------
-
-[Integrator_learning folder]
+[Integrator_learning]
 
 1. self_organize_all_E_integrator.m
-   Trains an excitatory-only network to become a linear integrator. (Figure 2)
+   Trains an excitatory network to become an approximate linear integrator
+   using the TTL rule.
+
+   Reproduces the main analyses in Figure 2c 2d 2f
+
    Usage:
        cd Integrator_learning
        self_organize_all_E_integrator
 
 
-2. LI_vs_wrec.m (Figure 2)
-   Evaluates linearity vs mean recurrent weight after learning.
+2. LI_vs_wrec.m
+   Evaluates the Linearity Index as a function of mean recurrent weight.
+
+   Reproduces Figure 2e. Error bars are standard errors.
+
    Usage:
        cd Integrator_learning
        LI_vs_wrec
-   Scales W_rec from 0.7×–1.3× baseline (W_rec0) and computes the Linearity Index (R²).
 
-3. learning_timing.m (Figure 3)
-   Simulates a two-choice timing task combining decision and timer networks.
+
+3. learning_timing.m
+   Simulates the two-stage decision--timing model and TTL-dependent
+   adaptation of ramp speed.
+
+   Reproduces Figure 3f 3h. Example parameters are included for both
+   short-to-long and long-to-short delay switching.
+
    Usage:
        cd Integrator_learning
        learning_timing
-   Builds decision and timer networks, applies reward-modulated TTL rule, and plots timing and weight evolution.
 
-[MFT folder]
 
-4. mft_main.m (Figure 1)
-   Main script for mean-field analysis and source–sink plotting. It calls IO_function.m and plot I/O curve too.
-	To test a faster synaptic constant, change neuron_parameters to neuron_parameters_tau20 in the code.
+[MFT]
+
+4. mft_main.m
+   Performs the mean-field analysis and plots the I/O relation and
+   source--sink dynamics.
+
+   Reproduces Figure 1 and related supplementary analyses.
+   The script calls IO_function.m for IO function.
+
+   To test different conditions, load the corresponding parameter file:
+       neuron_parameters.m          Figure 1 related
+       neuron_parameters_1000.m     N = 1000 Figure S1
+       neuron_parameters_taus20.m   tau_s = 20 ms Figure S2
+
    Usage:
        cd MFT
        mft_main
 
 
-5. integrator_RNN.m 
-   Demonstrates the integrator mechanism in recurrent network (N = 100), with any time step dt.
+5. integrator_RNN.m
+   Demonstrates integrator-like dynamics in a recurrent spiking network
+   without learning.
+
    Usage:
        cd MFT
        integrator_RNN
 
-6. DDM_parameter.m (Figure 5)
-   Extracts drift-diffusion model (DDM) parameters from noisy integrator trials.
+
+6. eyeposition.m and delta_r.m
+   Simulate oculomotor-like persistent activity and the relationship
+   between input strength and firing-rate change.
+
+   These scripts reproduce the simulation panels in Figure 4b--c.
+
+   Usage:
+       cd MFT
+       eyeposition
+       delta_r
+
+
+7. DDM_parameter.m
+   Estimates effective drift--diffusion parameters from integrator-network
+   simulations.
+
+   Reproduces the drift--diffusion analysis in Figure 4d.
+
    Usage:
        cd MFT
        DDM_parameter
 
-7. ramp_vs_sd.m (Figure 3)
-   Demonstrate linear scaling between variability and ramp time. 
+
+8. ramp_vs_sd.m
+   Examines the linear relationship between mean ramp time and its
+   trial-to-trial variability.
+
+   Reproduces Figure 3h.
+
    Usage:
        cd MFT
        ramp_vs_sd
 
-8. run1000neuron.m (Figure S)
-   Runs a large-scale simulation (N=1000 neurons) to test robustness.
-   Usage:
-       cd MFT
-       run1000neuron
-
-9. slow_ramping.m
-    Runs a slow ramp simulation (N=100 neurons)
-    Usage:
-        cd MFT
-        super_long
 
 
 
 
-- May replace missing color map functions (e.g., slanCL) with MATLAB defaults.
-
-
-------------------------------------------------
+------------------------------------------------------------
 Contact
-------------------------------------------------
-For questions or updates, contact [bolu.feng@rice.edu].
+------------------------------------------------------------
+
+For questions, contact:
+bolu.feng@rice.edu
