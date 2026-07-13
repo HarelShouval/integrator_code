@@ -165,7 +165,113 @@ end
 idx_first = 1;   idx_last = 100;
 t_plot    = 1:t_total;
 
-% … [rest of the plotting code remains unchanged] …
+%% -------------------------------------------------------------------------
+% Plot evolution of mean recurrent and feed-forward weights
+% -------------------------------------------------------------------------
+figure;
+
+subplot(1,2,1)
+plot(1:num_epochs, wrec_record, 'LineWidth', 2);
+xlabel('Epoch');
+ylabel('Mean W_{rec}');
+title('Recurrent weight');
+box off;
+
+subplot(1,2,2)
+plot(1:num_epochs, wff_record, 'LineWidth', 2);
+xlabel('Epoch');
+ylabel('Mean W_{ff}');
+title('Feed-forward weight');
+box off;
+
+%% -------------------------------------------------------------------------
+% Test trained integrator on novel input profiles
+% Reproduces Fig. 2f generalization test
+% -------------------------------------------------------------------------
+
+num_test_trials = 10;
+t_test = 1000;
+time_vec = 0:t_test-1;
+
+% Novel input 1: paired step input
+input_pair = zeros(1, t_test);
+input_pair(time_vec < 300) = 0.018;
+input_pair(time_vec >= 700 & time_vec < 900) = 0.018;
+
+% Novel input 2: rectified sinusoidal input
+input_sine = 0.018 * abs(sin(2*pi*time_vec/t_test));
+
+% Storage
+mean_rate_pair = zeros(num_test_trials, t_test);
+mean_rate_sine = zeros(num_test_trials, t_test);
+
+for i = 1:num_test_trials
+    r_pair = simulateNovelInput(t_test, p_r_0, input_pair, W_rec, W_ff);
+    r_sine = simulateNovelInput(t_test, p_r_0, input_sine, W_rec, W_ff);
+
+    mean_rate_pair(i,:) = mean(1000 * r_pair, 1);
+    mean_rate_sine(i,:) = mean(1000 * r_sine, 1);
+end
+
+% Trial averages and SD
+pair_mean = mean(mean_rate_pair, 1);
+pair_sd   = std(mean_rate_pair, 0, 1);
+
+sine_mean = mean(mean_rate_sine, 1);
+sine_sd   = std(mean_rate_sine, 0, 1);
+
+% Exact temporal integrals of input, scaled to firing-rate axis
+pair_integral = cumsum(input_pair);
+pair_integral = pair_integral / max(pair_integral);
+pair_integral = pair_integral * (pair_mean(end) - pair_mean(1)) + pair_mean(1);
+
+sine_integral = cumsum(input_sine);
+sine_integral = sine_integral / max(sine_integral);
+sine_integral = sine_integral * (sine_mean(end) - sine_mean(1)) + sine_mean(1);
+
+%% Plot
+figure;
+
+% ---------------- Left: paired steps ----------------
+subplot(4,1,1)
+hold on
+fill([time_vec fliplr(time_vec)], ...
+     [pair_mean + pair_sd fliplr(pair_mean - pair_sd)], ...
+     [0.7 0.85 0.95], 'EdgeColor', 'none', 'FaceAlpha', 0.8);
+plot(time_vec, pair_mean, 'b', 'LineWidth', 2);
+plot(time_vec, pair_integral, 'k--', 'LineWidth', 1.5);
+ylabel('Firing Rate (Hz)');
+xlim([0 t_test]);
+ylim([0 20]);
+box off;
+
+subplot(4,1,2)
+plot(time_vec, input_pair, 'r', 'LineWidth', 1.5);
+xlabel('Time (ms)');
+ylabel('Input (a.u.)');
+xlim([0 t_test]);
+ylim([0 0.02]);
+box off;
+
+% ---------------- Right: rectified sine ----------------
+subplot(4,1,3)
+hold on
+fill([time_vec fliplr(time_vec)], ...
+     [sine_mean + sine_sd fliplr(sine_mean - sine_sd)], ...
+     [0.7 0.85 0.95], 'EdgeColor', 'none', 'FaceAlpha', 0.8);
+plot(time_vec, sine_mean, 'b', 'LineWidth', 2);
+plot(time_vec, sine_integral, 'k--', 'LineWidth', 1.5);
+xlim([0 t_test]);
+ylim([0 20]);
+box off;
+
+subplot(4,1,4)
+plot(time_vec, input_sine, 'r', 'LineWidth', 1.5);
+xlabel('Time (ms)');
+xlim([0 t_test]);
+ylim([0 0.02]);
+box off;
+
 
 
 %% Helper Function: simulateTrial
@@ -215,7 +321,6 @@ rho_syn    = 1/7;
 tau_se_int = 80;    % integrator synapse
 tau_s_fast     = 10;    % input layer synapse (stimulus shaping)
 norm_noise = 0.13;
-
 C_m        = 0.2;
 g_L        = 0.01;
 E_l        = -60;
@@ -356,5 +461,92 @@ for t = 2:t_steps
             W_ff = W_ff .* (W_ff > 0) .* (1 - isnan(W_ff));
         end
     end
+end
+end
+
+
+
+
+function r_int = simulateNovelInput(t_total, p_r0, input_profile, W_rec, W_ff)
+% Run a trained network with an arbitrary time-varying input.
+% No plasticity is applied.
+
+N_int   = size(W_rec, 1);
+N_input = size(W_ff, 2);
+
+dt      = 1;
+t_steps = t_total / dt;
+tau_w   = 40;
+
+rho_syn    = 1/7;
+tau_se_int = 80;
+tau_s_fast = 10;
+norm_noise = 0.13;
+
+C_m        = 0.2;
+g_L        = 0.01;
+E_l        = -60;
+E_e        = -5;
+v_th       = -55;
+v_hold     = -61;
+v_rest     = -60;
+t_refractory = 2/dt;
+
+% Same input profile is applied to every input channel
+input_rate = repmat(input_profile, N_input, 1);
+
+s_input     = zeros(N_input, t_steps);
+r_input     = zeros(N_input, t_steps);
+
+v_int             = v_rest * ones(N_int, t_steps);
+r_int             = zeros(N_int, t_steps);
+s_int             = zeros(N_int, t_steps);
+g_input_to_int    = zeros(N_int, t_steps);
+g_timer_to_int    = zeros(N_int, t_steps);
+is_refractory_int = zeros(N_int, t_steps);
+is_spike_int      = zeros(N_int, t_steps);
+
+for t = 2:t_steps
+
+    % Input-layer dynamics
+    current_spike = poissrnd(p_r0 + input_rate(:, t));
+    is_spike_input = (current_spike == 1);
+
+    s_input(:, t) = s_input(:, t-1) - ...
+        (s_input(:, t-1) * dt / tau_s_fast) + ...
+        rho_syn * is_spike_input .* (1 - s_input(:, t-1));
+   
+    r_input(:, t) = r_input(:, t-1) + ...
+        (is_spike_input / dt - r_input(:, t-1)) * (dt / tau_w);
+
+    % Integrator-network dynamics
+    g_input_to_int(:, t) = W_ff  * s_input(:, t-1);
+    g_timer_to_int(:, t) = W_rec * s_int(:, t-1);
+    g_total = g_input_to_int(:, t) + g_timer_to_int(:, t);
+
+    is_refractory = (is_refractory_int(:, t) == 1);
+    v_int(is_refractory, t) = v_rest;
+
+    is_spike = (v_int(:, t-1) >= v_th);
+    is_spike_int(:, t) = is_spike;
+    not_spike = (~is_spike & ~is_refractory);
+
+    v_int(is_spike, t) = v_hold;
+
+    if t < t_steps - t_refractory
+        is_refractory_int(is_spike, t+1 : t+t_refractory) = 1;
+    end
+
+    s_int(:, t) = s_int(:, t-1) - ...
+        (s_int(:, t-1) * dt / tau_se_int) + ...
+        rho_syn * is_spike .* (1 - s_int(:, t-1));
+
+    v_int(not_spike, t) = v_int(not_spike, t-1) + ...
+        (randn(sum(not_spike), 1) * norm_noise + ...
+         g_L * (E_l - v_int(not_spike, t-1)) + ...
+         g_total(not_spike) .* (E_e - v_int(not_spike, t-1))) * (dt / C_m);
+
+    r_int(:, t) = r_int(:, t-1) + ...
+        (is_spike / dt - r_int(:, t-1)) * (dt / tau_w);
 end
 end

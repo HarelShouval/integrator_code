@@ -1,13 +1,10 @@
 %% -------------------------------------------------------------------------
-% 7. Post-training analysis
-%    (1) define Wrec_f_mean0
-%    (2) sweep mean <W_rec> from 0.8× to 1.2× of the trained mean
-%    (3) for each mean, run I1, I2, (I1+I2)/2 with 10 repeats
-%    (4) compute LI (R^2 of linear fit) for each trial individually
-%    (5) plot mean ± SD of LI vs. <W_rec> and save all per-trial mean traces
+%   Post-training analysis, need to run self_organize_all_E_integrator.m
+%   first
+%   
+%   mean ± SEM of LI vs. <W_rec> and save all per-trial mean traces
 % -------------------------------------------------------------------------
-
-Wrec_f_mean0 = 3.95e-5;                         % (1) legacy reference (optional for labeling)
+Wrec_f_mean0 = 3.95e-5;                         %  reference (Wrec0 for labeling)
 
 % Keep trained weights as the base, then rescale mean recurrent strength
 W_rec_trained = W_rec;
@@ -165,14 +162,14 @@ for ii = 1:nCond
 end
 
 %% (5) Plot mean ± SD of LI vs. <W_rec>
-LI_I1_mean   = mean(LI_I1,   2);  LI_I1_std   = std(LI_I1,   0, 2);
-LI_I2_mean   = mean(LI_I2,   2);  LI_I2_std   = std(LI_I2,   0, 2);
-LI_IMID_mean = mean(LI_IMID, 2);  LI_IMID_std = std(LI_IMID, 0, 2);
+LI_I1_mean   = mean(LI_I1,   2);  LI_I1_sem   = std(LI_I1,   0, 2)/sqrt(nRepeats);
+LI_I2_mean   = mean(LI_I2,   2);  LI_I2_sem   = std(LI_I2,   0, 2)/sqrt(nRepeats);
+LI_IMID_mean = mean(LI_IMID, 2);  LI_IMID_sem = std(LI_IMID, 0, 2)/sqrt(nRepeats);
 
 figure; hold on; box on; grid on;
-errorbar(xvals_ratio/ 0.9762, LI_I1_mean,   LI_I1_std,   '-o', 'LineWidth', 1.8, 'MarkerSize', 5);
-errorbar(xvals_ratio/ 0.9762, LI_I2_mean,   LI_I2_std,   '-s', 'LineWidth', 1.8, 'MarkerSize', 5);
-errorbar(xvals_ratio/ 0.9762, LI_IMID_mean, LI_IMID_std, '-^', 'LineWidth', 1.8, 'MarkerSize', 5);
+errorbar(xvals_ratio/ 0.9762, LI_I1_mean,   LI_I1_sem,   '-o', 'LineWidth', 1.8, 'MarkerSize', 5);
+errorbar(xvals_ratio/ 0.9762, LI_I2_mean,   LI_I2_sem,   '-s', 'LineWidth', 1.8, 'MarkerSize', 5);
+errorbar(xvals_ratio/ 0.9762, LI_IMID_mean, LI_IMID_sem, '-^', 'LineWidth', 1.8, 'MarkerSize', 5);
 xlabel('\langle W_{rec} \rangle / \langle W_{rec} \rangle_{trained}');
 ylabel('LI (R^2), mean \pm SD');
 legend({'I_1','I_2','(I_1+I_2)/2'}, 'Location','best');
