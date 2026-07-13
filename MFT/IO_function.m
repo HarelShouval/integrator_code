@@ -24,17 +24,7 @@ W = W.*0;                          % wipe recurrent weights
 W_ff = 0.001 *ones(N,N); % all Wff are the same, when  W_rec = 0, equivelent to 
 % run 100 identical single neurons at the same time.
 
-%% Colormap
-line_colors = [ 0.3059    0.4745    0.6549
-    0.9490    0.5569    0.1686
-    0.8824    0.3412    0.3490
-    0.4627    0.7176    0.6980
-    0.3490    0.6314    0.3098
-    0.9294    0.7882    0.2824
-    0.6902    0.4784    0.6314
-    1.0000    0.6157    0.6549
-    0.6118    0.4588    0.3725
-    0.7294    0.6902    0.6745];
+
 
 num_trials = 1000;
 

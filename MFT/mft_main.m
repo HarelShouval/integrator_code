@@ -12,8 +12,8 @@
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% close all;clear all;
-% IO_function;  %  I/O 
+close all;clear all;
+IO_function;  %  I/O 
 
 %% ------------------------------------------------------------------------
 neuron_parameters;            % loads dt, N, W, etc.
@@ -111,47 +111,28 @@ for it = 1:runlen-1
 end
 
 %% -------------------------- Plotting -----------------------------------
-line_colors = slanCL(210);
 
-figure(8); clf; hold on
-plot(timeline(1:10000), squeeze(mean(s_ex_all,2)), ...
-     'Color',[.5 .5 .5],'LineWidth',2);
-plot(timeline, S, 'Color', line_colors(8,:), 'LineWidth',4);
-xlabel('Time (ms)'); ylabel('S'); xlim([0 1000]);
-legend('Simulations','MFT','Box','off','Location','northwest');
 
-figure(9); hold on;
+
+figure(9); clf;
+
 subplot(2,1,1); hold on
-plot(timeline(1:10000), squeeze(mean(s_ex_all,2)), ...
+h1 = plot(timeline(1:10000), squeeze(mean(s_ex_all,2)), ...
      'Color',[.5 .5 .5],'LineWidth',1);
-plot(timeline, S, 'Color', line_colors(8,:), 'LineWidth',2);
+h2 = plot(timeline, S, 'Color', line_colors(8,:), 'LineWidth',2);
 ylabel('S'); xlim([0 2000]);
+legend([h1(1), h2], {'simulation', 'MFT'}, 'Box','off');
 
 subplot(2,1,2); hold on
-plot(timeline(1:10000), 1000*squeeze(mean(r_ex_all,2)), ...
+h3 = plot(timeline(1:10000), 1000*squeeze(mean(r_ex_all,2)), ...
      'Color',[.5 .5 .5],'LineWidth',1);
-plot(timeline, 1000*R, 'Color', line_colors(8,:), 'LineWidth',2);
+h4 = plot(timeline, 1000*R, 'Color', line_colors(8,:), 'LineWidth',2);
 xlabel('Time (ms)'); ylabel('Firing rate (Hz)'); xlim([0 2000]);
+legend([h3(1), h4], {'simulation', 'MFT'}, 'Box','off');
 
 
 
-figure(10); hold on;
-subplot(2,1,1); hold on
-plot(timeline(1:10000), squeeze(mean(s_ex_all,2)), ...
-     'Color',[.5 .5 .5],'LineWidth',1);
 
-plot(timeline(1:10000), mean(squeeze(mean(s_ex_all,2))), ...
-     'Color',[.5 .5 .5]*0,'LineWidth',2);
-% plot(timeline, S, 'Color', line_colors(8,:), 'LineWidth',2);
-ylabel('S'); xlim([0 2000]);
-
-subplot(2,1,2); hold on
-plot(timeline(1:10000), 1000*squeeze(mean(r_ex_all,2)), ...
-     'Color',[.5 .5 .5],'LineWidth',1);
-plot(timeline(1:10000), 1000*mean(squeeze(mean(r_ex_all,2))), ...
-     'Color',[.5 .5 .5]*0,'LineWidth',2);
-% plot(timeline, 1000*R, 'Color', line_colors(8,:), 'LineWidth',2);
-xlabel('Time (ms)'); ylabel('Firing rate (Hz)'); xlim([0 2000]);
 
 %% ------------------ MFT source and sink curves ---------------------------------
 plot_s = 1e-4:1e-4:1;

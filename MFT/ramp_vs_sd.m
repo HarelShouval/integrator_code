@@ -1,225 +1,272 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%  Simulations + Ramp‑Cross Statistics with a Constant 0–500 ms Input
+% Decision-to-timer weight sweep
 %
-%  ── What this script does ───────────────────────────────────────────────
-%  • Runs NUM_TRIALS independent network simulations (10 s each).
-%  • Each trial receives a constant external drive (input_mean) for the
-%      first STIM_DURATION ms, then 0 afterward.          [same as code 1]
-%  • After every trial the population‑mean firing‑rate trace is examined:
-%        – The first time it exceeds RAMP_THRESHOLD (34 Hz) is recorded.
-%  • Prints mean ± SD of those crossing times and plots the single‑trial
-%    ramp traces (grey) together with the threshold (red dashed line).
-%  • All of the original mean‑field calculations and phase‑plane plots
-%    from code 2 are preserved so you can still compare to MFT.
-%
-%  ── Requirements ────────────────────────────────────────────────────────
-%  • neuron_parameters_taus20.m  (same as before; defines dt, N, W, etc.)
-%  • slanCL.m  (optional – for nicer colours; comment out if not present)
+% This script simulates a decision network coupled to a timer network.
+% Across weight conditions, it measures the first time at which the timer
+% population activity crosses a fixed threshold. It then plots the standard
+% deviation of crossing time against the mean crossing time.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-close all; clear; clc;
+clear;  close all;  clc;
 
-% ------------------------------------------------------------------------
-neuron_parameters;      % loads dt, N, W, rho, tau_se, etc.
-% ------------------------------------------------------------------------
+%% Simulation setup
+n_cond     = 20;
+num_trials = 20;
 
-%% ---------------- user‑set simulation parameters -----------------------
-NUM_TRIALS     = 1000;     % trials (code 1 used 20)
-input_mean     = 0.01;   % amplitude of DC drive (same as old code 2)
-STIM_DURATION  = 500;    % ms – constant drive from 0…500 ms
-RAMP_THRESHOLD = 34;     % Hz – population mean FR threshold
-alpha          = 1.03;   % empirical factor for mean‑field
-% ------------------------------------------------------------------------
+mean_cross = nan(1, n_cond);
+sd_cross   = nan(1, n_cond);
+timer_curve_store = cell(1, n_cond);
 
-%% Time parameters
-t_total  = 4000;                     % ms per trial (10 s)
-T_steps  = t_total / dt;
-time_vec = (0:T_steps-1)*dt;          % convenient time axis
+fprintf('Running %d weight conditions × %d trials …\n', n_cond, num_trials);
 
+%% Model parameters
+N_timer   = 100;
+npp       = 50;
+n_exc_total = 2*npp;
+n_inh_total = 2*npp;
+N_input   = 100;
 
-n_cond = 1;
-%% Pre‑allocate output arrays
-% r_ex_all   = zeros(NUM_TRIALS, N, T_steps);   % low‑pass FRs (excitatory)
-% s_ex_all   = zeros(NUM_TRIALS, N, T_steps);   % synaptic gating
-% spk_all    = zeros(NUM_TRIALS, N, T_steps);   % raster
-ramp_store = nan(NUM_TRIALS, T_steps);        % population mean FR
-crossTimes = nan(NUM_TRIALS, 1);              % 1st threshold crossing (ms)
-s_input = zeros(N, T_steps);
+dt        = 1;
+T         = 4000/dt;
+delta     = 600/dt;
+t_total   = 3001;
+t_steps   = t_total/dt;
+D         = 10/dt;
+tau_w     = 50;
 
+eG = 0.4;
+iG = 0.5;
 
-%=========================================================================%
-%                               TRIAL LOOP                                %
-%=========================================================================%
-fprintf('Running %d trials …\n', NUM_TRIALS);
-for ic = 1:n_cond
-for i = 1:NUM_TRIALS
-    %---------------- state variables (per trial) ------------------------%
-    neuron_parameters;
-    mean_wff = 0.0001*(0.8 + 2/20*1.5);
-    W_ff = (rand(N,N) < sparsity);   % new external weights
-    W_ff = W_ff/mean(W_ff,"all")*mean_wff;
+%% Stimulus input to decision network
+W_in = cell(2,1);
+W_in{1} = 0.01*rand(n_exc_total,1);
+W_in{2} = 0.01*rand(n_exc_total,1);
+W_in{1}(1:npp)             = eG;
+W_in{2}(npp+1:2*npp)       = eG;
 
+p_r  = 0.02*dt;
 
-    v_ex            = v_rest * ones(N,T_steps);
-    input           = zeros(N,T_steps);          
-    g_input_to_ex   = zeros(N,T_steps);
-    g_ex_to_ex      = zeros(N,T_steps);
-    is_refractory_ex= zeros(N,T_steps);
-    is_spike_ex     = zeros(N,T_steps);
-    r_ex            = zeros(N,T_steps);
-    s_ex            = zeros(N,T_steps);
+%% Decision-network connectivity
+rho     = 0.5;
+w_rec   = 0.002;
+i_mean  = 0.0015;
+p_mean  = 0.0015;
+k_rec   = 0.00;
 
-    %----------------------------- TIME LOOP -----------------------------%
-    for t = 2:T_steps
-        % ----------- Constant drive for 0–STIM_DURATION ms --------------
-       
+W_ji = zeros(n_exc_total);
+M_ki = zeros(n_exc_total, n_inh_total);
+P_ik = zeros(n_inh_total, n_exc_total);
+K_jk = zeros(n_inh_total);
 
-        is_spike_input = rand(N,1) < 0.004;
-   
+W_ji(1:npp,1:npp)                 = w_rec*(rand(npp)<rho);
+W_ji(npp+1:end,npp+1:end)         = w_rec*(rand(npp)<rho);
 
-         
-        s_input(:, t) = s_input(:, t-1) - (s_input(:, t-1)*dt/20) + ...
-                         rho * is_spike_input .* (1 - s_input(:, t-1));
-        % s_input(:, t) = input_mean;
-      
-        %---------------- Refractory handling ----------------------------%
-        is_refrac = is_refractory_ex(:,t)==1;
-        v_ex(is_refrac,t) = v_rest;
+M_ki(1:npp,npp+1:end)             = i_mean*(rand(npp)<rho);
+M_ki(npp+1:end,1:npp)             = i_mean*(rand(npp)<rho);
 
-        %---------------- Spike detection --------------------------------%
-        is_spike           = v_ex(:,t-1) >= v_th;
-        is_spike_ex(:,t)   = is_spike;
-        v_ex(is_spike,t)   = v_hold;
-        if t < T_steps - t_refractory
-            is_refractory_ex(is_spike,t+1:t+t_refractory) = 1;
+P_ik(1:npp,1:npp)                 = p_mean*(rand(npp)<rho);
+P_ik(npp+1:end,npp+1:end)         = p_mean*(rand(npp)<rho);
+
+K_jk(1:npp,1:npp)                 = k_rec*(rand(npp)<rho);
+K_jk(npp+1:end,npp+1:end)         = k_rec*(rand(npp)<rho);
+
+rec_identity_decision = zeros(n_exc_total);
+rec_identity_decision(1:npp,1:npp)                 = W_ji(1:npp,1:npp)>0;
+rec_identity_decision(npp+1:end,npp+1:end)         = W_ji(npp+1:end,npp+1:end)>0;
+
+%% Timer-network connectivity
+w_timer_mean = 0.000158/4;  
+W_timer = w_timer_mean*rand(N_timer,N_timer).*(rand(N_timer,N_timer)<rho);
+W_timer = W_timer./mean(W_timer,"all")*w_timer_mean;
+
+rec_identity_timer = W_timer>0;
+
+%% Input-to-decision weights
+w_input_to_decision_mean = 0.001;
+W_input_to_decision = zeros(n_exc_total,N_input);
+W_input_to_decision(1:npp,1:N_input/2)                     = w_input_to_decision_mean*rand(npp,N_input/2);
+W_input_to_decision(npp+1:end,N_input/2+1:end)             = w_input_to_decision_mean*rand(npp,N_input/2);
+
+%% Membrane and synaptic parameters
+rho_syn  = 1/7;
+tau_se_decision_input = 10;
+tau_se_timer = 80;
+tau_si  = 10;
+norm_noise = 0.13;
+C_m      = 0.2;
+g_L      = 0.01;
+E_i      = -70;
+E_l      = -60;
+E_e      = -5;
+v_th     = -55;
+v_th_i   = -50;
+v_rest   = -60;
+v_hold   = -61;
+t_refractory = 2/dt;
+
+%% Timer threshold and initial decision-to-timer weights
+ramp_threshold = 32;
+ w0 = 0.00008;
+
+W_decision_to_timer      = w0*rand(N_timer,n_exc_total).*(rand(N_timer,n_exc_total)<rho);
+W_decision_to_timer = W_decision_to_timer./mean(W_decision_to_timer,"all")*w0*rho*0.5;
+W_decision_to_timer_id   = W_decision_to_timer>0;  %#ok<NASGU>
+
+%% Weight sweep
+for cond = 1:n_cond
+   W_decision_to_timer = 0.95*W_decision_to_timer;
+
+    crossTimes      = nan(num_trials,1);
+    timer_FR_trials = nan(num_trials, t_steps);
+
+    %% Trial loop
+    for l = 1:num_trials
+
+        %% State variables
+        s_input_decision = zeros(n_exc_total, t_steps);
+        r_input_decision = zeros(n_exc_total, t_steps);
+
+        v_ex           = v_rest  * ones(n_exc_total, t_steps);
+        r_ex           = zeros(n_exc_total, t_steps);
+        s_ex           = zeros(n_exc_total, t_steps);
+        is_refractory_ex = zeros(n_exc_total, t_steps);
+        is_spike_ex      = zeros(n_exc_total, t_steps);
+
+        v_inh          = v_rest * ones(n_inh_total, t_steps);
+        r_inh          = zeros(n_inh_total, t_steps);
+        s_inh          = zeros(n_inh_total, t_steps);
+        is_refractory_inh = zeros(n_inh_total, t_steps);
+        is_spike_inh      = zeros(n_inh_total, t_steps);
+
+        v_timer        = v_rest * ones(N_timer, t_steps);
+        r_timer        = zeros(N_timer, t_steps);
+        s_timer        = zeros(N_timer, t_steps);
+        g_decision_to_timer = zeros(N_timer, t_steps);
+        g_timer_to_timer    = zeros(N_timer, t_steps);
+        is_refractory_timer = zeros(N_timer, t_steps);
+        is_spike_timer      = zeros(N_timer, t_steps);
+
+        choice = 1;
+
+        %% Time loop
+        for t = 2:t_steps
+
+            %% Input layer
+            input_spike_decision = poissrnd(p_r, n_exc_total, 1);
+            if t>1 && t<500
+                is_spike_input_decision = (input_spike_decision==1);
+            else
+                is_spike_input_decision = 0;
+            end
+            s_input_decision(:,t) = s_input_decision(:,t-1) ...
+                   - (s_input_decision(:,t-1)*dt/tau_se_decision_input) ...
+                   + rho_syn * W_in{choice} .* is_spike_input_decision .* (1-s_input_decision(:,t-1));
+            r_input_decision(:,t) = r_input_decision(:,t-1) ...
+                   + (W_in{choice}.*is_spike_input_decision/dt - r_input_decision(:,t-1))*(dt/tau_w);
+
+            %% Decision excitatory population
+            is_refrac = is_refractory_ex(:,t)==1;
+            v_ex(is_refrac,t) = v_rest;
+            is_spike = (v_ex(:,t-1) >= v_th);
+            is_spike_ex(:,t) = is_spike;
+            not_spike = ~is_spike & ~is_refrac;
+            v_ex(is_spike,t) = v_hold;
+            if t < t_steps - t_refractory
+                is_refractory_ex(is_spike, t+1:t+t_refractory) = 1;
+            end
+            s_ex(:,t) = s_ex(:,t-1) - (s_ex(:,t-1)*dt/tau_se_decision_input) ...
+                       + rho_syn * is_spike .* (1-s_ex(:,t-1));
+            v_ex(not_spike,t) = v_ex(not_spike,t-1) + ...
+               ((randn(sum(not_spike),1)*norm_noise) ...
+               + g_L*(E_l - v_ex(not_spike,t-1)) ...
+               + (W_ji(not_spike,:) * s_ex(:,t-1)) .* (E_e - v_ex(not_spike,t-1)) ...
+               + (M_ki(not_spike,:) * s_inh(:,t-1)) .* (E_i - v_ex(not_spike,t-1)) ...
+               + W_input_to_decision(not_spike,:) * s_input_decision(:,t-1) .* (E_e - v_ex(not_spike,t-1)) ...
+               )*(dt/C_m);
+            r_ex(:,t) = r_ex(:,t-1) + (is_spike/dt - r_ex(:,t-1))*(dt/tau_w);
+
+            %% Decision inhibitory population
+            is_refrac = is_refractory_inh(:,t)==1;
+            v_inh(is_refrac,t) = v_rest;
+            is_spike = (v_inh(:,t-1) >= v_th_i);
+            is_spike_inh(:,t) = is_spike;
+            not_spike = ~is_spike & ~is_refrac;
+            v_inh(is_spike,t) = v_hold;
+            if t < t_steps - t_refractory
+                is_refractory_inh(is_spike, t+1:t+t_refractory) = 1;
+            end
+            s_inh(:,t) = s_inh(:,t-1) - (s_inh(:,t-1)*dt/tau_si) ...
+                       + rho_syn * is_spike .* (1-s_inh(:,t-1));
+            v_inh(not_spike,t) = v_inh(not_spike,t-1) + ...
+               ((randn(sum(not_spike),1)*norm_noise) ...
+               + g_L*(E_l - v_inh(not_spike,t-1)) ...
+               + (P_ik(not_spike,:) * s_ex(:,t-1)) .* (E_e - v_inh(not_spike,t-1)) ...
+               + (K_jk(not_spike,:) * s_inh(:,t-1)) .* (E_i - v_inh(not_spike,t-1)) ...
+               )*(dt/C_m);
+            r_inh(:,t) = r_inh(:,t-1) + (is_spike/dt - r_inh(:,t-1))*(dt/tau_w);
+
+            %% Timer network
+            g_decision_to_timer(:,t) = W_decision_to_timer * s_ex(:,t-1);
+            g_timer_to_timer(:,t)    = W_timer          * s_timer(:,t-1);
+            g_total_timer = g_decision_to_timer(:,t) + g_timer_to_timer(:,t);
+
+            is_refrac = is_refractory_timer(:,t)==1;
+            v_timer(is_refrac,t) = v_rest;
+            is_spike = (v_timer(:,t-1) >= v_th);
+            is_spike_timer(:,t) = is_spike;
+            not_spike = ~is_spike & ~is_refrac;
+            v_timer(is_spike,t) = v_hold;
+            if t < t_steps - t_refractory
+                is_refractory_timer(is_spike,t+1:t+t_refractory) = 1;
+            end
+            s_timer(:,t) = s_timer(:,t-1) - (s_timer(:,t-1)*dt/tau_se_timer) ...
+                         + rho_syn*is_spike .* (1-s_timer(:,t-1));
+            v_timer(not_spike,t) = v_timer(not_spike,t-1) + ...
+               ((randn(sum(not_spike),1)*norm_noise) ...
+               + g_L*(E_l - v_timer(not_spike,t-1)) ...
+               + g_total_timer(not_spike) .* (E_e - v_timer(not_spike,t-1)) ...
+               )*(dt/C_m);
+            r_timer(:,t) = r_timer(:,t-1) + (is_spike/dt - r_timer(:,t-1))*(dt/tau_w);
+
         end
 
-        %---------------- Synaptic gating --------------------------------%
-        s_ex(:,t) = s_ex(:,t-1) - (dt/tau_se)*s_ex(:,t-1) ...
-                    + rho*is_spike.*(1 - s_ex(:,t-1));
+        %% First threshold-crossing time
+        mean_activity_timer = mean(1000*r_timer(:,1:t_total),1);
+        idx_cross = find(mean_activity_timer > ramp_threshold, 1, 'first');
+        if ~isempty(idx_cross)
+            crossTimes(l) = idx_cross*dt;
+        end
+        timer_FR_trials(l,:) = mean_activity_timer;
 
-        %---------------- Low‑pass firing rate ---------------------------%
-        r_ex(:,t) = r_ex(:,t-1) + (is_spike/dt - r_ex(:,t-1))*(dt/tau_w);
-
-        %---------------- Membrane update (non‑refrac / non‑spike) -------%
-        free = ~is_refrac & ~is_spike;
-        v_ex(free,t) = v_ex(free,t-1) + ...
-            ( g_L*(E_l - v_ex(free,t-1)) + ...
-              (g_input_to_ex(free,t-1)+g_ex_to_ex(free,t-1)).* ...
-              (E_e - v_ex(free,t-1)) + ...
-              norm_noise*randn(sum(free),1) ) * dt / C_m;
-
-        %---------------- Conductances -----------------------------------%
-        g_input_to_ex(:,t) = W_ff * s_input(:,t);
-        g_ex_to_ex(:,t)    = W    * s_ex(:,t);
-
-        %---------------- Save spikes (optional raster) ------------------%
-        % spk_all(i,:,t) = is_spike;
-      
-    end %--------------------------- end time loop -----------------------%
-
-    %---------------- After trial: ramp‑cross statistics -----------------%
-    mean_FR          = 1000*mean(r_ex(:,1:T_steps),1);   % Hz
-    ramp_store(i,:)  = mean_FR;                          % keep full trace
-    idx              = find(mean_FR > RAMP_THRESHOLD,1,'first');
-    if ~isempty(idx)
-        crossTimes(i) = idx*dt;                          % ms
     end
 
-    %---------------- Save trial results (original arrays) --------------%
+    %% Crossing-time statistics
+    mean_cross(cond) = mean(crossTimes,'omitnan');
+    sd_cross(cond)   = std (crossTimes,'omitnan');
+    timer_curve_store{cond} = timer_FR_trials;
 
-    % fprintf('  Trial %02d  cross = %.0f ms\n', i, crossTimes(i));
-end %============================= end trial loop =========================%
-
-%% -------------------- Summary statistics & quick plot -------------------
-mean_cross(ic) = mean(crossTimes,'omitnan');
-sd_cross(ic)   = std (crossTimes,'omitnan');
-fprintf('\nSummary: mean = %.0f ms   SD = %.0f ms  (n = %d trials)\n', ...
-        mean_cross(ic), sd_cross(ic), NUM_TRIALS);
-
-
+    fprintf('  cond %02d  w=%.5f   mean=%.0f ms  SD=%.0f ms\n', ...
+            cond, w0, mean_cross(cond), sd_cross(cond));
 end
 
-figure(1);clf;
-plot(mean_cross,sd_cross)
+%% Summary plot with zero-intercept linear fit
+figure('Name','mean_vs_sd','Color','w');
+plot(mean_cross, sd_cross, 'o','LineWidth',2);
+hold on;
 
-%% --------------------- Mean‑field curve (unchanged) --------------------
-%% ----------------------  summary plot  ---------------------------------
-figure(1); clf; hold on;
+fit_idx = isfinite(mean_cross) & isfinite(sd_cross);
+x_fit = mean_cross(fit_idx);
+y_fit = sd_cross(fit_idx);
 
+k = (x_fit * y_fit') / (x_fit * x_fit');
 
-fit_idx = 2: min(19, numel(mean_cross));
-x_fit_pts = mean_cross(fit_idx)-50;
-y_fit_pts = sd_cross(fit_idx);
+x_line = linspace(min(x_fit), max(x_fit), 200);
+y_line = k * x_line;
 
-% 1) scatter the data as dots
-scatter(x_fit_pts, y_fit_pts, 60, 'filled', ...
-        'MarkerFaceColor',[0 .4 .8], 'MarkerEdgeColor','k');
-
-xlabel('Mean ramp‑cross time  (ms)');
-ylabel('SD of ramp‑cross time (ms)');
-title('Timing variability vs mean across W_{decision→timer}');
-% grid on;
-
-% -- choose the points to fit: indices 3…18 (or as many as exist)
-
-
-% -- slope for y = kx (least‑squares with intercept = 0)
-% k = (x_fit_pts * y_fit_pts') / (x_fit_pts * x_fit_pts');
-% 
-% % -- line to plot
-% x_line = linspace(min(x_fit_pts), max(x_fit_pts), 100);
-% y_line = k * x_line;
-% plot(x_line, y_line, 'r-', 'LineWidth', 2);
-% 
-
-
-
-x_pts     = mean_cross(fit_idx);
-y_pts     = sd_cross(fit_idx);
-
-% 3) least‑squares slope for y = k·x^{3/2}
-x_pow     = x_pts .^ 1.5;                 % x^{3/2}
-k         = (x_pow * y_pts') / (x_pow * x_pow');   % closed‑form LS solution
-
-% 4) plot the fitted curve
-x_line = linspace(min(x_pts), max(x_pts), 200);
-y_line = k * x_line .^ 1.5;
 plot(x_line, y_line, 'r-', 'LineWidth', 2);
 
-%%
-% -------------------------------------------------------------------------
-%  Fit crossTimes with an inverse‑Gaussian (Wald) and plot
-% -------------------------------------------------------------------------
-%   Requires the Statistics & Machine Learning Toolbox (fitdist).
-%   crossTimes :  Nx1 (or 1xN) vector of first‑passage times (ms)
-% -------------------------------------------------------------------------
-
-% Example: crossTimes already in workspace
-% crossTimes = [...];        % your data
-
-% 1) Fit inverse‑Gaussian  p(T | μ, λ)
-pd = fitdist(crossTimes(:), 'InverseGaussian');   % returns μ (mu) and λ (lambda)
-mu_hat  = pd.mu;          % mean of the IG
-lam_hat = pd.lambda;      % shape parameter
-
-fprintf('Inverse‑Gaussian fit:  μ = %.1f ms   λ = %.2e\n', mu_hat, lam_hat);
-
-% 2) Plot histogram (PDF normalised)
-figure('Color','w');  hold on
-nbins = max(10, round(sqrt(numel(crossTimes))));  % Freedman–Diaconis rule-ish
-histogram(crossTimes, 20, 'Normalization', 'pdf', ...
-          'FaceColor', [0.25 0.45 0.75], 'EdgeColor', 'none');
-
-% 3) Overlay fitted PDF
-t_grid = linspace(min(crossTimes), max(crossTimes), 400);
-pdf_fit = pdf(pd, t_grid);     % inverse‑Gaussian pdf evaluated at t_grid
-plot(t_grid, pdf_fit, 'r', 'LineWidth', 2);
-
-% 4) Labels
-xlabel('First‑passage time  (ms)', 'FontSize', 11);
-ylabel('Probability density',      'FontSize', 11);
-title('Inverse‑Gaussian fit to ramp first‑passage times');
-legend({'Data (histogram)', 'Fitted inverse‑Gaussian'}, 'Location','northeast');
-
-box off
+xlabel('Mean ramp-cross time  (ms)');
+ylabel('SD of ramp-cross time (ms)');
+title('Timing variability vs mean across W_{decision→timer}');
+legend({'Simulation', sprintf('Fit: y = %.3gx', k)}, 'Location', 'best');
+grid on;

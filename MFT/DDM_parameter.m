@@ -15,7 +15,7 @@ NUM_TRIALS     = 100;     % <- 100 trials
 input_mean     = 0.01;    % DC drive amplitude (if you keep it)
 RAMP_THRESHOLD = 25;      % Hz – population mean FR threshold (θ)
 alpha          = 1.03;    % (kept from your code; unused here)
-t_total        = 3000;    % ms per trial
+t_total        = 1000;    % ms per trial
 % ------------------------------------------------------------------------
 
 T_steps  = t_total / dt;
@@ -152,22 +152,162 @@ fprintf('  theta  = %.4f ± %.4f  (empirical at hit)\n', ...
         mean(theta_all,'omitnan'), std(theta_all,'omitnan'));
 
 % ------------------- quick diagnostics ----------------------------------
-% 1) Normality of residual increments
-residuals = (all_dX - mu_hat*dt) / sqrt(dt);
-figure('Color','w'); histogram(residuals, 40, 'Normalization','pdf');
-title('Residual increments (normalized)'); xlabel('z'); ylabel('pdf');
+%% ---------------- μ & σ estimation from increments -----------------------
+% all_dX was computed from 50-ms coarse-grained population-rate bins.
+% Therefore mu_hat is in Hz/ms and sigma_hat is in Hz/sqrt(ms).
 
-% 2) Autocorrelation of residuals (should be ~white)
-try
-    figure('Color','w'); autocorr(residuals, 30);
-    title('ACF of residuals');
-catch
-    % If you don't have Econometrics Toolbox, just skip
+mu_hat     = mean(all_dX) / dt_window;
+sigma_hat  = sqrt(var(all_dX - mu_hat * dt_window) / dt_window);
+
+fprintf('\nEstimated effective DDM parameters:\n');
+fprintf('  mu     = %.5f Hz/ms\n', mu_hat);
+fprintf('  sigma  = %.5f Hz/sqrt(ms)\n', sigma_hat);
+fprintf('  X0     = %.4f ± %.4f Hz\n', ...
+        mean(X0_all,'omitnan'), std(X0_all,'omitnan'));
+fprintf('  theta  = %.4f ± %.4f Hz\n', ...
+        mean(theta_all,'omitnan'), std(theta_all,'omitnan'));
+
+%% ------------------------------------------------------------------------
+% Reproduce DDM vs RNN comparison panel
+% -------------------------------------------------------------------------
+
+n_plot = 10;                         % number of example trajectories shown
+theta  = RAMP_THRESHOLD;             % decision boundary
+x0     = 0;                           % start near zero, as in the figure
+
+ddm_trials = nan(n_plot, T_steps);
+
+rng(2);
+
+for k = 1:n_plot
+
+    X = nan(1, T_steps);
+    X(1) = x0;
+
+    for t = 2:T_steps
+
+        dX = mu_hat * dt + sigma_hat * sqrt(dt) * randn;
+        X(t) = X(t-1) + dX;
+
+        % Reflecting lower boundary at zero
+        if X(t) < 0
+            X(t) = -X(t);
+        end
+
+        % Absorbing upper decision boundary
+        if X(t) >= theta
+            X(t) = theta;
+            X(t+1:end) = NaN;
+            break;
+        end
+    end
+
+    ddm_trials(k, :) = X;
 end
 
-% 3) Cross-time summary
-figure('Color','w'); histogram(crossTimes, 30);
-xlabel('First‑passage time (ms)'); ylabel('Count');
-title('Distribution of ramp‑cross times');
+%% Prepare RNN example trajectories
+rnn_trials = ramp_store(1:n_plot, :);
 
-plot(ramp_store(1:10,:)');
+for k = 1:n_plot
+    idx_hit = find(rnn_trials(k, :) >= theta, 1, 'first');
+
+    if ~isempty(idx_hit)
+        rnn_trials(k, idx_hit) = theta;
+        rnn_trials(k, idx_hit+1:end) = NaN;
+    end
+end
+
+%% Mean drift line
+t_hit_line = theta / mu_hat;
+t_line = 0:dt:min(t_total, t_hit_line);
+mean_drift_line = mu_hat * t_line;
+
+%% Plot
+figDDM = figure('Color', 'w', ...
+    'Units', 'centimeters', ...
+    'Position', [3 3 18 7]);
+
+% ---------------- DDM panel ----------------
+ax1 = subplot(1,2,1);
+hold(ax1, 'on');
+
+for k = 1:n_plot
+    plot(ax1, time_vec, ddm_trials(k, :), ...
+        'Color', [0.65 0.65 0.65], ...
+        'LineWidth', 0.9);
+end
+
+plot(ax1, t_line, mean_drift_line, ...
+    'k', ...
+    'LineWidth', 2.2);
+
+yline(ax1, theta, '--', ...
+    'Color', [0.35 0.35 0.35], ...
+    'LineWidth', 1.5);
+
+xlabel(ax1, 'Time (ms)');
+ylabel(ax1, 'Decision variable X');
+title(ax1, 'DDM', ...
+    'FontWeight', 'bold');
+
+text(ax1, 430, theta + 2.0, 'Decision boundary', ...
+    'FontSize', 9);
+
+text(ax1, 430, 2.0, 'Reflecting boundary', ...
+    'FontSize', 9);
+
+legend(ax1, {'DDM trials', 'Mean drift'}, ...
+    'Location', 'southeast', ...
+    'Box', 'on');
+
+xlim(ax1, [0 t_total]);
+ylim(ax1, [0 theta + 5]);
+
+set(ax1, ...
+    'Box', 'off', ...
+    'TickDir', 'out', ...
+    'FontSize', 9, ...
+    'LineWidth', 0.9, ...
+    'Layer', 'top');
+
+% ---------------- RNN panel ----------------
+ax2 = subplot(1,2,2);
+hold(ax2, 'on');
+
+for k = 1:n_plot
+    plot(ax2, time_vec, rnn_trials(k, :), ...
+        'Color', [0.62 0.84 0.84], ...
+        'LineWidth', 0.9);
+end
+
+plot(ax2, t_line, mean_drift_line, ...
+    'Color', [0.20 0.45 0.58], ...
+    'LineWidth', 2.2);
+
+yline(ax2, theta, '--', ...
+    'Color', [0.35 0.35 0.35], ...
+    'LineWidth', 1.5);
+
+xlabel(ax2, 'Time (ms)');
+ylabel(ax2, 'Firing rate (Hz)');
+title(ax2, 'RNN', ...
+    'FontWeight', 'bold');
+
+legend(ax2, {'RNN trials', 'Mean drift'}, ...
+    'Location', 'southeast', ...
+    'Box', 'on');
+
+xlim(ax2, [0 t_total]);
+ylim(ax2, [0 theta + 5]);
+
+set(ax2, ...
+    'Box', 'off', ...
+    'TickDir', 'out', ...
+    'FontSize', 9, ...
+    'LineWidth', 0.9, ...
+    'Layer', 'top');
+
+%% Save
+print(figDDM, '-dpdf', '-r600', 'Fig4d_DDM_vs_RNN.pdf');
+print(figDDM, '-dsvg', '-r600', 'Fig4d_DDM_vs_RNN.svg');
+print(figDDM, '-dpng', '-r600', 'Fig4d_DDM_vs_RNN.png');
