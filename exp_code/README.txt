@@ -14,8 +14,8 @@ To reproduce individual figures:
   figureS5    Figure S5 experimental panels
 
 The three scripts include their helper functions; no additional code files
-are required. The CSV files provide session, neuron, and trial metadata;
-the analyses read the required metadata directly from the HDF5 file.
+are required. Session, neuron, and trial metadata CSV files are available on Zenodo.
+The analyses read the required metadata directly from the HDF5 file.
 
 Outputs:
   output_from_psth/       Figure 3b-d: FIG, SVG, PDF, PNG, MAT, CSV
